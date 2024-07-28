@@ -1,0 +1,6 @@
+[project]
+name = "samba_conf"
+version = "0.1.0"
+
+[project.optional-dependencies]
+dev = ["ansible-core~=2.17.2"]
