@@ -72,6 +72,17 @@ message:
 """
 
 
+class _ParseError(Exception):
+    def __init__(self, message, line, lineno) -> None:
+        super().__init__()
+        self.message = message
+        self.line = line.rstrip()
+        self.lineno = lineno + 1
+
+    def __str__(self):
+        return "{} at line {}: {!r}".format(self.message, self.lineno, self.line)
+
+
 class _Document:
     def __init__(self):
         self._items = []
@@ -201,19 +212,23 @@ def _parse_conf(path):
     d = _Document()
     prev = d
     with open(path, "rt") as f:
-        for line in f:
+        for lineno, line in enumerate(f):
             sline = line.strip()
             if len(sline) == 0:
                 d.add(_Blank())
             elif sline.startswith(("#", ";")):
                 d.add(_Comment(line))
             elif sline.startswith("["):
-                m = re.match(r"\[([^\]]+)\]", line)
+                m = re.match(r"^\s*\[([^\]]+)\]\s*$", line)
+                if m is None:
+                    raise _ParseError("Invalid share definition", line, lineno)
                 s = _Section(m.group(1))
                 prev = s
                 d.add(s)
             else:
                 m = re.match(r"\s*(.+?)\s*=\s*(.+?)\s*", line)
+                if m is None:
+                    raise _ParseError("Invalid syntax", line, lineno)
                 o = _Option(m.group(1), m.group(2))
                 prev.add(o)
     return d
@@ -224,9 +239,7 @@ def run_module():
     module_args = dict(
         path=dict(type="str", required=True),
         section=dict(type="str", required=True),
-        state=dict(
-            type="str", choices=("present", "absent", "commented"), default="present"
-        ),
+        state=dict(type="str", choices=("present", "absent", "commented"), default="present"),
         option=dict(type="str"),
         value=dict(type="str"),
     )
@@ -255,9 +268,7 @@ def run_module():
     value = module.params["value"]
 
     if state == "present" and (option is None or value is None):
-        module.fail_json(
-            msg="When state is 'present', option and value are required", **result
-        )
+        module.fail_json(msg="When state is 'present', option and value are required", **result)
 
     if state in ("absent", "commented") and option is not None and value is not None:
         module.fail_json(
@@ -265,7 +276,16 @@ def run_module():
             **result,
         )
 
-    conf = _parse_conf(path)
+    try:
+        conf = _parse_conf(path)
+    except _ParseError as exc:
+        # during the execution of the module, if there is an exception or a
+        # conditional state that effectively causes a failure, run
+        # AnsibleModule.fail_json() to pass in the message and the result
+        module.fail_json(
+            msg=str(exc),
+            lineno=exc.lineno,
+        )
     orig = copy.deepcopy(conf)
 
     if state == "absent" and option is None:
@@ -283,20 +303,14 @@ def run_module():
 
     # use whatever logic you need to determine whether or not this module
     # made any modifications to your target
-    # if module.params['new']:
-    #    result['changed'] = True
     changed = conf != orig
     result["changed"] = changed
 
+    # if the user is working with this module in only check mode we do not
+    # want to make any changes to the environment
     if changed and not module.check_mode:
         with open(path, "w") as f:
             f.write(conf.stringify())
-
-    # during the execution of the module, if there is an exception or a
-    # conditional state that effectively causes a failure, run
-    # AnsibleModule.fail_json() to pass in the message and the result
-    # if module.params['name'] == 'fail me':
-    #    module.fail_json(msg='You requested this to fail', **result)
 
     # in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results
