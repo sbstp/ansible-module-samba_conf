@@ -20,16 +20,24 @@ version_added: "1.0.0"
 description: This is my longer description explaining my test module.
 
 options:
-    name:
-        description: This is the message to send to the test module.
+    path:
+        description: Path to the Samba configuration file.
         required: true
         type: str
-    new:
+    state:
         description:
-            - Control to demo if the result of this module is changed or not.
-            - Parameter description can be a list as well.
-        required: false
-        type: bool
+            - Desired state of the selected objects. When section is provided
+            - but not option, the whole section is commented. When both section
+            - and option are provided, only the option is commented.
+        choices:
+            - present
+            - absent
+            - commented
+        default: present
+        type: str
+    section:
+        required: true
+        type: str
 # Specify this value according to your collection
 # in format of namespace.collection.doc_fragment_name
 # extends_documentation_fragment:
@@ -40,35 +48,46 @@ author:
 """
 
 EXAMPLES = r"""
-# Pass in a message
-- name: Test with a message
-  my_namespace.my_collection.my_test:
-    name: hello world
+# Modify option
+- name: Modify global workgroup
+  sbstp.ansible.samba_conf:
+    path: /etc/samba/smb.comf
+    section: global
+    option: workgroup
+    value: ACME_INC
 
-# pass in a message and have changed true
-- name: Test with a message and changed output
-  my_namespace.my_collection.my_test:
-    name: hello world
-    new: true
+# Modify many options
+- name: Modify multiple options
+  sbstp.ansible.samba_conf:
+    path: /etc/samba/smb.comf
+    section: tank
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+  with_items:
+    - option: path
+      value: /tank/data
+    - option: browseable
+      value: "yes"
 
-# fail the module
-- name: Test failure of the module
-  my_namespace.my_collection.my_test:
-    name: fail me
+# Remove section
+- name: Remove print$ Samba section
+  sbstp.ansible.samba_conf:
+    path: /etc/samba/smb.comf
+    section: "print$"
+    state: absent
+
+# Comment section
+- name: Comment print$ Samba section
+  sbstp.ansible.samba_conf:
+    path: /etc/samba/smb.comf
+    section: "print$"
+    state: commented
 """
 
 RETURN = r"""
-# These are examples of possible return values, and in general should use other names for return values.
-original_message:
-    description: The original name param that was passed in.
-    type: str
-    returned: always
-    sample: 'hello world'
-message:
-    description: The output message that the test module generates.
-    type: str
-    returned: always
-    sample: 'goodbye'
+changed:
+  description: Whether any changes were made.
+  type: bool
 """
 
 
