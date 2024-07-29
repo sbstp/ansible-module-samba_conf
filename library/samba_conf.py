@@ -10,14 +10,14 @@ __metaclass__ = type
 DOCUMENTATION = r"""
 ---
 module: samba_conf
+short_description: Modify samba configuration files easily without erasing comments.
+version_added: "1.0.0" # TODO
 
-short_description: Edit samba configuration
-
-# If this is part of a collection, you need to use semantic versioning,
-# i.e. the version is of the form "2.5.0" and not "2.4".
-version_added: "1.0.0"
-
-description: This is my longer description explaining my test module.
+description:
+    - Modify samba configuration files easily, either by setting the value
+    - of options, removing options, commenting options, removing sections or
+    - commenting sections.
+    -
 
 options:
     path:
@@ -27,8 +27,10 @@ options:
     state:
         description:
             - Desired state of the selected objects. When section is provided
-            - but not option, the whole section is commented. When both section
-            - and option are provided, only the option is commented.
+            - but not option, the whole section is modified. When both section
+            - and option are provided, only the option is modified. When section,
+            - option and value are set this will set the given value to the given
+            - option in the given section.
         choices:
             - present
             - absent
@@ -36,7 +38,14 @@ options:
         default: present
         type: str
     section:
+        description: Name of the section to modify
         required: true
+        type: str
+    option:
+        description: Name of the option to modify
+        type: str
+    value:
+        description: Value of the selected option to modify
         type: str
 # Specify this value according to your collection
 # in format of namespace.collection.doc_fragment_name
@@ -112,18 +121,20 @@ class _Document:
         if isinstance(item, _Section):
             self._sections[item.name] = item
 
-    def section(self, name):
+    def section(self, name, create=True):
         try:
             return self._sections[name]
         except KeyError:
+            if not create:
+                raise
             s = _Section(name)
             self._sections[name] = s
             self._items.append(_Blank())  # spacing only
             self._items.append(s)
             return s
 
-    def option(self, section, name):
-        return self.section(section).option(name)
+    def option(self, section, name, create=True):
+        return self.section(section, create=create).option(name, create=create)
 
     def remove_section(self, name):
         s = self._sections.pop(name)
@@ -152,10 +163,12 @@ class _Section:
         if isinstance(item, _Option):
             self._options[item.name] = item
 
-    def option(self, name):
+    def option(self, name, create=True):
         try:
             return self._options[name]
         except KeyError:
+            if not create:
+                raise
             o = _Option(name, "")
             self._options[name] = o
             self._items.append(o)
@@ -227,29 +240,28 @@ class _Option:
         )
 
 
-def _parse_conf(path):
+def _parse_conf(text):
     d = _Document()
     prev = d
-    with open(path, "rt") as f:
-        for lineno, line in enumerate(f):
-            sline = line.strip()
-            if len(sline) == 0:
-                d.add(_Blank())
-            elif sline.startswith(("#", ";")):
-                d.add(_Comment(line))
-            elif sline.startswith("["):
-                m = re.match(r"^\s*\[([^\]]+)\]\s*$", line)
-                if m is None:
-                    raise _ParseError("Invalid share definition", line, lineno)
-                s = _Section(m.group(1))
-                prev = s
-                d.add(s)
-            else:
-                m = re.match(r"\s*(.+?)\s*=\s*(.+?)\s*", line)
-                if m is None:
-                    raise _ParseError("Invalid syntax", line, lineno)
-                o = _Option(m.group(1), m.group(2))
-                prev.add(o)
+    for lineno, line in enumerate(text.splitlines()):
+        sline = line.strip()
+        if len(sline) == 0:
+            d.add(_Blank())
+        elif sline.startswith(("#", ";")):
+            d.add(_Comment(line))
+        elif sline.startswith("["):
+            m = re.match(r"^\s*\[([^\[\]]+)\]\s*$", line)
+            if m is None:
+                raise _ParseError("Invalid share definition", line, lineno)
+            s = _Section(m.group(1))
+            prev = s
+            d.add(s)
+        else:
+            m = re.match(r"^\s*(.+?)\s*=\s*(.*?)\s*$", line)
+            if m is None:
+                raise _ParseError("Invalid syntax", line, lineno)
+            o = _Option(m.group(1), m.group(2))
+            prev.add(o)
     return d
 
 
@@ -296,7 +308,8 @@ def run_module():
         )
 
     try:
-        conf = _parse_conf(path)
+        with open(path, "rt") as f:
+            conf = _parse_conf(f.read())
     except _ParseError as exc:
         # during the execution of the module, if there is an exception or a
         # conditional state that effectively causes a failure, run
