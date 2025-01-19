@@ -1,5 +1,6 @@
 import textwrap
 import unittest
+import os.path as osp
 from library import samba_conf
 
 
@@ -45,3 +46,43 @@ class TestParsing(unittest.TestCase):
             samba_conf._parse_conf("[[share1]")
         with self.assertRaises(samba_conf._ParseError):
             samba_conf._parse_conf("prop1")
+
+
+class TestTransformations(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.maxDiff = None
+
+    def compare(self, expected, params):
+        with open(osp.join(osp.dirname(__file__), "testdata", "00_original.conf"), "rt") as f:
+            conf = samba_conf._parse_conf(f.read())
+        section = params["section"]
+        state = params["state"]
+        option = params["option"]
+        value = params["value"]
+        samba_conf._apply_transformations(conf, section, state, option, value)
+        with open(osp.join(osp.dirname(__file__), "testdata", expected), "rt") as f:
+            self.assertEqual(conf.stringify(), f.read())
+
+    def test_add_section(self):
+        self.compare(
+            "01_add_section.conf",
+            params=dict(
+                section="tank",
+                state="present",
+                option="foo",
+                value="bar",
+            ),
+        )
+
+    def test_comment_section(self):
+        self.maxDiff = None
+        self.compare(
+            "02_comment_section.conf",
+            params=dict(
+                section="global",
+                state="commented",
+                option=None,
+                value=None,
+            ),
+        )

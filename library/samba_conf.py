@@ -144,7 +144,7 @@ class _Document:
         for x in self._items:
             yield from x.render(indent)
 
-    def stringify(self, indent="  "):
+    def stringify(self, indent="   "):
         return "".join(self.render(indent))
 
     def __eq__(self, other):
@@ -190,9 +190,9 @@ class _Section:
 
     def render(self, indent="  "):
         if self._commented:
-            yield ";{}[{}]\n".format(indent, self.name)
+            yield ";[{}]\n".format(self.name)
         else:
-            yield "{}[{}]\n".format(indent, self.name)
+            yield "[{}]\n".format(self.name)
         for x in self._items:
             yield from x.render(indent)
 
@@ -214,6 +214,7 @@ class _Comment:
 
     def render(self, indent="  "):
         yield self.text
+        yield "\n"
 
     def __eq__(self, other):
         return isinstance(other, _Comment) and self.text == other.text
@@ -227,9 +228,9 @@ class _Option:
 
     def render(self, indent="  "):
         if self.commented:
-            yield ";{}{}{} = {}\n".format(indent, indent, self.name, self.value)
+            yield ";{}{} = {}\n".format(indent[1:], self.name, self.value)
         else:
-            yield "{}{}{} = {}\n".format(indent, indent, self.name, self.value)
+            yield "{}{} = {}\n".format(indent, self.name, self.value)
 
     def __eq__(self, other):
         return (
@@ -246,9 +247,9 @@ def _parse_conf(text):
     for lineno, line in enumerate(text.splitlines()):
         sline = line.strip()
         if len(sline) == 0:
-            d.add(_Blank())
+            prev.add(_Blank())
         elif sline.startswith(("#", ";")):
-            d.add(_Comment(line))
+            prev.add(_Comment(line))
         elif sline.startswith("["):
             m = re.match(r"^\s*\[([^\[\]]+)\]\s*$", line)
             if m is None:
@@ -263,6 +264,27 @@ def _parse_conf(text):
             o = _Option(m.group(1), m.group(2))
             prev.add(o)
     return d
+
+
+def _apply_transformations(conf, section, state, option, value):
+    if state == "present" and (option is None or value is None):
+        raise Exception("When state is 'present', option and value are required")
+
+    if state in ("absent", "commented") and option is not None and value is not None:
+        raise Exception("When state is 'absent' or 'commented' and option is provided, value cannot be provided")
+
+    if state == "absent" and option is None:
+        conf.remove_section(section)
+    if state == "commented" and option is None:
+        conf.section(section).commented = True
+
+    if state == "absent" and option is not None:
+        conf.section(section).remove_option(option)
+    if state == "commented" and option is not None:
+        conf.option(section, option).commented = True
+
+    if state == "present":
+        conf.section(section).option(option).value = value
 
 
 def run_module():
@@ -298,15 +320,6 @@ def run_module():
     option = module.params["option"]
     value = module.params["value"]
 
-    if state == "present" and (option is None or value is None):
-        module.fail_json(msg="When state is 'present', option and value are required", **result)
-
-    if state in ("absent", "commented") and option is not None and value is not None:
-        module.fail_json(
-            msg="When state is 'absent' or 'commented' and option is provided, value cannot be provided",
-            **result,
-        )
-
     try:
         with open(path, "rt") as f:
             conf = _parse_conf(f.read())
@@ -320,18 +333,10 @@ def run_module():
         )
     orig = copy.deepcopy(conf)
 
-    if state == "absent" and option is None:
-        conf.remove_section(section)
-    if state == "commented" and option is None:
-        conf.section(section).commented = True
-
-    if state == "absent" and option is not None:
-        conf.section(section).remove_option(option)
-    if state == "commented" and option is not None:
-        conf.option(section, option).commented = True
-
-    if state == "present":
-        conf.section(section).option(option).value = value
+    try:
+        _apply_transformations(conf, section, state, option, value)
+    except Exception as e:
+        module.fail_json(msg=e.args[0], **result)
 
     # use whatever logic you need to determine whether or not this module
     # made any modifications to your target
