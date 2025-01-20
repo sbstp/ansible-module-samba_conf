@@ -37,9 +37,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(conf.option("share2", "prop1").value, "prop1")
         self.assertEqual(conf.option("share2", "prop2").value, "")
         with self.assertRaises(KeyError):
-            conf.section("share3", create=False)
-        self.assertEqual(conf._items[-2].text, "# hello")
-        self.assertEqual(conf._items[-1].text, "; world")
+            conf.section("share4", create=False)
 
     def test_parse_invalid(self):
         with self.assertRaises(samba_conf._ParseError):
@@ -62,6 +60,7 @@ class TestTransformations(unittest.TestCase):
         value = params["value"]
         samba_conf._apply_transformations(conf, section, state, option, value)
         with open(osp.join(osp.dirname(__file__), "testdata", expected), "rt") as f:
+            # open("foo.conf", "wt").write(conf.stringify())
             self.assertEqual(conf.stringify(), f.read())
 
     def test_add_section(self):
@@ -76,12 +75,22 @@ class TestTransformations(unittest.TestCase):
         )
 
     def test_comment_section(self):
-        self.maxDiff = None
         self.compare(
             "02_comment_section.conf",
             params=dict(
                 section="global",
                 state="commented",
+                option=None,
+                value=None,
+            ),
+        )
+
+    def test_uncomment_section(self):
+        self.compare(
+            "03_uncomment_section.conf",
+            params=dict(
+                section="netlogon",
+                state="present",
                 option=None,
                 value=None,
             ),

@@ -152,11 +152,11 @@ class _Document:
 
 
 class _Section:
-    def __init__(self, name):
+    def __init__(self, name, commented=False):
         self.name = name
         self._options = {}
         self._items = []
-        self._commented = False
+        self._commented = commented
 
     def add(self, item):
         self._items.append(item)
@@ -221,10 +221,10 @@ class _Comment:
 
 
 class _Option:
-    def __init__(self, name, value):
+    def __init__(self, name, value, commented=False):
         self.name = name
         self.value = value
-        self.commented = False
+        self.commented = commented
 
     def render(self, indent="  "):
         if self.commented:
@@ -245,31 +245,45 @@ def _parse_conf(text):
     d = _Document()
     prev = d
     for lineno, line in enumerate(text.splitlines()):
-        sline = line.strip()
-        if len(sline) == 0:
+        if re.match(r"^\s*$", line):
             prev.add(_Blank())
-        elif sline.startswith(("#", ";")):
-            prev.add(_Comment(line))
-        elif sline.startswith("["):
-            m = re.match(r"^\s*\[([^\[\]]+)\]\s*$", line)
-            if m is None:
-                raise _ParseError("Invalid share definition", line, lineno)
-            s = _Section(m.group(1))
+            continue
+
+        # Check if line starts with a comment character. We still try to parse
+        # commented lines for the uncomment functionality.
+        is_comment = re.match(r"^\s*[;#]", line) is not None
+        if is_comment:
+            uline = line.strip()
+            uline = line[1:] # skip over ; or #
+        else:
+            uline = line
+
+        # Check the line for a [section] pattern
+        m = re.match(r"^\s*\[([^\[\]]+)\]\s*$", uline)
+        if m is not None:
+            s = _Section(m.group(1), commented=is_comment)
             prev = s
             d.add(s)
-        else:
-            m = re.match(r"^\s*(.+?)\s*=\s*(.*?)\s*$", line)
-            if m is None:
-                raise _ParseError("Invalid syntax", line, lineno)
-            o = _Option(m.group(1), m.group(2))
+            continue
+
+        # Check the line for a key=value pattern
+        m = re.match(r"^\s*(.+?)\s*=\s*(.*?)\s*$", uline)
+        if m is not None and "===" not in uline:
+            o = _Option(m.group(1), m.group(2), commented=is_comment)
             prev.add(o)
+            continue
+
+        # Unable to parse the line as [section] or a key=value.
+        # If the line is a comment, that's no issue. But if it isn't, it's a
+        # syntax error.
+        if is_comment:
+            prev.add(_Comment(line))
+        else:
+            raise _ParseError("Invalid syntax", line, lineno)
     return d
 
 
 def _apply_transformations(conf, section, state, option, value):
-    if state == "present" and (option is None or value is None):
-        raise Exception("When state is 'present', option and value are required")
-
     if state in ("absent", "commented") and option is not None and value is not None:
         raise Exception("When state is 'absent' or 'commented' and option is provided, value cannot be provided")
 
@@ -283,8 +297,11 @@ def _apply_transformations(conf, section, state, option, value):
     if state == "commented" and option is not None:
         conf.option(section, option).commented = True
 
-    if state == "present":
+    if state == "present" and option is not None:
         conf.section(section).option(option).value = value
+        conf.section(section).option(option).commented = False
+    if state == "present":
+        conf.section(section).commented = False
 
 
 def run_module():
