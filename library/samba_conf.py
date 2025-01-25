@@ -148,7 +148,7 @@ class _Document:
         return "".join(self.render(indent))
 
     def __eq__(self, other):
-        return isinstance(other, _Document) and self._items == self._items
+        return isinstance(other, _Document) and self._items == other._items
 
 
 class _Section:
@@ -197,7 +197,7 @@ class _Section:
             yield from x.render(indent)
 
     def __eq__(self, other):
-        return isinstance(other, _Section) and self._items == other.items
+        return isinstance(other, _Section) and self._items == other._items
 
 
 class _Blank:

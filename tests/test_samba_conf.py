@@ -1,3 +1,4 @@
+import copy
 import textwrap
 import unittest
 import os.path as osp
@@ -95,3 +96,16 @@ class TestTransformations(unittest.TestCase):
                 value=None,
             ),
         )
+
+
+class TestChanged(unittest.TestCase):
+    def test_changed(self):
+        conf = samba_conf._parse_conf("""[tank]
+            foo = bar
+        """)
+        orig = copy.deepcopy(conf)
+        conf.option("tank", "qux").value = "zee"
+        self.assertFalse(conf == orig)
+
+        conf.section("tank").remove_option("qux")
+        self.assertTrue(conf == orig)
